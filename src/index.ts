@@ -1,5 +1,3 @@
-function a(): string {
-  return 'lqb'
-}
-
-console.log(a())
+const bname = 'aaaa'
+const cname = 'cccc'
+console.log(bname)
