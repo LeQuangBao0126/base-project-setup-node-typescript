@@ -1,8 +1,4 @@
-Đây là năm 2023 rồi, bây giờ mà code Node.js với Javascript thì có vẻ hơi "lạc hậu" 🥲. Typescript gần như là bắt buộc khi code những project liên quan đến Javascript trong những năm gần đây.
 
-Code TypeScript một thời gian bạn sẽ không muốn quay về code Javascript nữa. Trust me 😎.
-
-Có thể bạn sẽ thắc mắc, "thế ESLint với Prettier dùng để làm gì? "
 
 ESLint thì chuẩn hóa tiêu chuẩn code, còn Prettier thì format code cho đẹp. Khi code một dự án chỉ có một mình bạn thì sao cũng được, nhưng khi code một dự án nhiều người thì đòi hỏi tất cả mọi người trong team phải code theo cùng một tiêu chuẩn, nếu không thì sẽ rất khó khăn trong việc đọc code của những người khác. Và ESLint và Prettier sẽ giúp bạn giải quyết vấn đề này.
 
