@@ -1,6 +1,7 @@
 import { Request } from 'express'
 import { File } from 'formidable'
 import fs from 'fs'
+import path from 'path'
 import { UPLOAD_IMAGE_TEMP_DIR, UPLOAD_VIDEO_DIR, UPLOAD_VIDEO_TEMP_DIR } from '~/constants/dir'
 
 export const initFolder = () => {
@@ -47,10 +48,15 @@ const _MAX_VIDEO_SIZE = 50 * 1024 * 1024
 
 export const handleUploadVideo = async (req: Request) => {
   const formidable = (await import('formidable')).default
+  const nanoId = (await import('nanoid')).nanoid
+
+  const idName = nanoId(7)
+  //tao thu muc vs idName ,de bo clip vao
+  fs.mkdirSync(path.resolve(UPLOAD_VIDEO_DIR, idName))
 
   const form = formidable({
     maxFiles: 1,
-    uploadDir: UPLOAD_VIDEO_DIR,
+    uploadDir: path.resolve(UPLOAD_VIDEO_DIR, idName),
     maxFileSize: _MAX_VIDEO_SIZE,
     filter: function ({ name, originalFilename, mimetype }) {
       const valid = name === 'video' && Boolean(mimetype?.includes('mp4') || mimetype?.includes('quicktime'))
@@ -58,6 +64,9 @@ export const handleUploadVideo = async (req: Request) => {
         form.emit('error' as any, new Error('File khong dung dinh dang .') as any)
       }
       return valid
+    },
+    filename: function () {
+      return idName
     }
   })
   return new Promise<File[]>((resolve, reject) => {
@@ -71,6 +80,8 @@ export const handleUploadVideo = async (req: Request) => {
       videos.forEach((video) => {
         const ext = getExtension(video.originalFilename as string)
         fs.renameSync(video.filepath, video.filepath + '.' + ext)
+        video.newFilename = video.newFilename + '.' + ext
+        video.filepath = video.filepath + '.' + ext
       })
 
       resolve(videos as File[])
@@ -86,4 +97,22 @@ export const getNameFromFullName = (fullname: string) => {
 export function getExtension(fullname: string) {
   const nameArr = fullname.split('.')
   return nameArr[1]
+}
+
+export function getFiles(dir: string, files: string[] = []) {
+  // Get an array of all files and directories in the passed directory using fs.readdirSync
+  const fileList = fs.readdirSync(dir)
+  // Create the full path of the file/directory by concatenating the passed directory and file/directory name
+  for (const file of fileList) {
+    const name = `${dir}/${file}`
+    // Check if the current file/directory is a directory using fs.statSync
+    if (fs.statSync(name).isDirectory()) {
+      // If it is a directory, recursively call the getFiles function with the directory path and the files array
+      getFiles(name, files)
+    } else {
+      // If it is a file, push the full path to the files array
+      files.push(name)
+    }
+  }
+  return files
 }

@@ -2,12 +2,13 @@ import User from '~/models/schemas/User.schema'
 import databaseService from './database.services'
 import { RegisterRequestBody, UpdateMeReqBody } from '~/models/requests/User.requests'
 import { hashPassword } from '~/utils/crypto'
-import { signToken } from '~/utils/jwt'
+import { signToken, verifyToken } from '~/utils/jwt'
 import { TokenType, UserVerifyStatus } from '~/constants/enum'
 import RefreshToken from '~/models/schemas/RefreshToken.schema'
 import { ObjectId } from 'mongodb'
 import { ErrorWithStatus } from '~/models/Error'
 import Follower from '~/models/schemas/Follower.schema'
+import { sendVerifyEmailTemplate } from '~/utils/email'
 
 class UsersService {
   private signAccessToken({ user_id, verify }: { user_id: string; verify: UserVerifyStatus }) {
@@ -17,13 +18,23 @@ class UsersService {
       option: { expiresIn: process.env.ACCESS_TOKEN_EXPIRES_IN }
     })
   }
-  private signRefreshToken({ user_id, verify }: { user_id: string; verify: UserVerifyStatus }) {
+
+  private signRefreshToken({ user_id, verify, exp }: { user_id: string; verify: UserVerifyStatus; exp?: number }) {
+    if (exp) {
+      // neu có thời điểm thì dùng thời điểm
+      return signToken({
+        payload: { user_id, verify, tokenType: TokenType.RefreshToken, exp },
+        privateKey: process.env.JWT_SECRET_REFRESH_TOKEN as string
+        //option: { expiresIn: process.env.REFRESH_TOKEN_EXPIRES_IN } nếu có exp rồi thì ko expireIn nữa .
+      })
+    }
     return signToken({
       payload: { user_id, verify, tokenType: TokenType.RefreshToken },
       privateKey: process.env.JWT_SECRET_REFRESH_TOKEN as string,
       option: { expiresIn: process.env.REFRESH_TOKEN_EXPIRES_IN }
     })
   }
+
   private signEmailVerifyToken({ user_id, verify }: { user_id: string; verify: UserVerifyStatus }) {
     return signToken({
       payload: { user_id, verify, tokenType: TokenType.EmailVerifyToken },
@@ -31,6 +42,7 @@ class UsersService {
       option: { expiresIn: process.env.EMAIL_TOKEN_EXPIRES_IN }
     })
   }
+
   private signForgotPasswordToken({ user_id, verify }: { user_id: string; verify: UserVerifyStatus }) {
     return signToken({
       payload: { user_id, verify, tokenType: TokenType.ForgotPasswordToken },
@@ -38,9 +50,19 @@ class UsersService {
       option: { expiresIn: process.env.FORGOT_PASSWORD_TOKEN_EXPIRES_IN }
     })
   }
+
   private signAccessAndRefreshToken({ user_id, verify }: { user_id: string; verify: UserVerifyStatus }) {
     return Promise.all([this.signAccessToken({ user_id, verify }), this.signRefreshToken({ user_id, verify })])
   }
+
+  private async decodeRefreshToken(refresh_token: string) {
+    return await verifyToken({
+      token: refresh_token,
+      secretOrPublicKey: process.env.JWT_SECRET_REFRESH_TOKEN as string
+    })
+  }
+
+  // gui email cho khach khi dang ki thanh cong
   async register(payload: RegisterRequestBody) {
     try {
       const user_id = new ObjectId().toString()
@@ -61,11 +83,28 @@ class UsersService {
         user_id,
         verify: UserVerifyStatus.Unverified
       })
+
+      const decode_refresh_token = await this.decodeRefreshToken(refresh_token)
+
       await databaseService.refreshTokens.insertOne(
-        new RefreshToken({ token: refresh_token as string, user_id: new ObjectId(user_id), created_at: new Date() })
+        new RefreshToken({
+          token: refresh_token as string,
+          user_id: new ObjectId(user_id),
+          created_at: new Date(),
+          iat: decode_refresh_token!.iat,
+          exp: decode_refresh_token!.exp
+        })
       )
+      // flow gửi mail
+      // 1 sever send email to user
+      // 2 user click link in email
+      // 3 Client send request to server with email_verify_token
+      // 4  Server verify email_verify_token
+      // 5 client receive access_token , refresh_token
+
+      sendVerifyEmailTemplate('nhoctengi6789@gmail.com', email_verify_token)
+
       return {
-        email_verify_token,
         access_token,
         refresh_token
       }
@@ -74,20 +113,65 @@ class UsersService {
     }
   }
 
+  async refreshToken({
+    user_id,
+    verify,
+    refresh_token,
+    exp
+  }: {
+    user_id: string
+    verify: UserVerifyStatus
+    refresh_token: string
+    exp: number
+  }) {
+    const [access_token, new_refresh_token] = await Promise.all([
+      this.signAccessToken({ user_id, verify }),
+      this.signRefreshToken({ user_id, verify, exp })
+    ])
+    const deleteRs = await databaseService.refreshTokens.deleteOne({ token: refresh_token })
+
+    const decode_refresh_token = await this.decodeRefreshToken(new_refresh_token)
+    //xoa cai cu va insert cai moi
+    await databaseService.refreshTokens.insertOne(
+      new RefreshToken({
+        token: new_refresh_token as string,
+        user_id: new ObjectId(user_id),
+        created_at: new Date(),
+        iat: decode_refresh_token!.iat,
+        exp: decode_refresh_token!.exp
+      })
+    )
+    return {
+      access_token,
+      refresh_token: new_refresh_token
+    }
+  }
+
   async checkEmailExisting(value: string) {
     const user = await databaseService.users.findOne({ email: value })
     return Boolean(user)
   }
+
   async login(user_id: string, verify: UserVerifyStatus) {
     const [access_token, refresh_token] = await this.signAccessAndRefreshToken({ user_id, verify })
+
+    const decode_refresh_token = await this.decodeRefreshToken(refresh_token)
+
     databaseService.refreshTokens.insertOne(
-      new RefreshToken({ token: refresh_token as string, user_id: new ObjectId(user_id), created_at: new Date() })
+      new RefreshToken({
+        token: refresh_token as string,
+        user_id: new ObjectId(user_id),
+        created_at: new Date(),
+        iat: decode_refresh_token!.iat,
+        exp: decode_refresh_token!.exp
+      })
     )
     return {
       access_token,
       refresh_token
     }
   }
+
   async logout(refresh_token: string) {
     await databaseService.refreshTokens.deleteOne({ token: refresh_token })
   }
@@ -125,7 +209,9 @@ class UsersService {
         }
       }
     ])
+    sendVerifyEmailTemplate('nhoctengi6789@gmail.com', email_verify_token)
   }
+
   async forgotPassword({ user_id, verify }: { user_id: string; verify: UserVerifyStatus }) {
     const forgotPasswordToken = await this.signForgotPasswordToken({ user_id, verify })
     await databaseService.users.updateOne(
@@ -143,6 +229,7 @@ class UsersService {
     //console.log('forgot_password_token', forgotPasswordToken)
     return { message: 'thanh cong roi ban .Xin hãy kiếm tra email' }
   }
+
   async resetPassword(user_id: string, password: string) {
     const result = await databaseService.users.updateOne(
       { _id: new ObjectId(user_id) },
@@ -177,6 +264,7 @@ class UsersService {
     )
     return user
   }
+
   async updateMe(user_id: string, payload: UpdateMeReqBody) {
     // allow fields update
     const p = payload.date_of_birth
@@ -205,6 +293,7 @@ class UsersService {
     )
     return doc.value
   }
+
   async getProfile(username: string) {
     const data = await databaseService.users.findOne(
       { username },
@@ -219,6 +308,7 @@ class UsersService {
     }
     return data
   }
+
   async follow(user_id: string, followed_user_id: string) {
     const follower = await databaseService.followers.findOne({
       user_id: new ObjectId(user_id),
@@ -235,6 +325,7 @@ class UsersService {
     }
     return { message: 'follow failed' }
   }
+
   async unFollow(user_id: string, followed_user_id: string) {
     const follower = await databaseService.followers.findOne({
       user_id: new ObjectId(user_id),

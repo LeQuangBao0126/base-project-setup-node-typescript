@@ -24,3 +24,10 @@ export const USER_MESSAGES = {
   COVER_PHOTO_MUST_BE_STRING: 'cover photo must be a string ',
   COVER_PHOTO_LENGTH_FROM_TO: 'cover photo lenght must be from 1 to 200'
 } as const
+
+export const TWEET_MESSAGES = {
+  INVALID_TYPE: 'tweet invalid type ',
+  INVALID_AUDIENCE: 'tweet invalid audience ',
+  PARENT_ID_MUST_BE_A_VALID_TWEET_ID: 'parent id must be valid tweet id',
+  CONTENT_MUST_BE_NON_EMPTY_STRING: 'content must be non empty string '
+} as const
