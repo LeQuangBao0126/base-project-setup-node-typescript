@@ -186,12 +186,15 @@ export const accessTokenValidator = validate(
             if (!accessToken) {
               throw new ErrorWithStatus({ message: USER_MESSAGES.ACCESS_TOKEN_IS_REQUIRED, status: 401 })
             }
-            const decoded_authorization = await verifyToken({
-              token: accessToken,
-              secretOrPublicKey: process.env.JWT_SECRET_ACCESS_TOKEN as string
-            })
-            ;(req as Request).decoded_authorization = decoded_authorization as TokenPayload
-
+            try {
+              const decoded_authorization = await verifyToken({
+                token: accessToken,
+                secretOrPublicKey: process.env.JWT_SECRET_ACCESS_TOKEN as string
+              })
+              ;(req as Request).decoded_authorization = decoded_authorization as TokenPayload
+            } catch (error) {
+              throw new ErrorWithStatus({ message: 'loi access token ', status: HTTP_STATUS.UNAUTHORIZED })
+            }
             return true
           }
         }
@@ -363,3 +366,16 @@ export const updateMeValidator = validate(
     ['body']
   )
 )
+
+export const isUserLoggedInValidator = (middleware: (req: Request, res: Response, next: NextFunction) => void) => {
+  return (req: Request, res: Response, next: NextFunction) => {
+    try {
+      if (req.headers.authorization) {
+        return middleware(req, res, next)
+      }
+      next()
+    } catch (err) {
+      next(err)
+    }
+  }
+}
